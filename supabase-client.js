@@ -48,7 +48,7 @@
       } catch (e) { redirectResult = {status:'error',type,message:`We couldn’t complete the confirmation: ${e.message}`}; }
     } else if (code) {
       redirectResult = {status:'error',type,message:'This confirmation link uses a code flow that this app cannot exchange. Request a fresh confirmation email and use the Edvantage confirmation link.'};
-    } else redirectResult = {status:'confirmed',type:type||'signup',email:''};
+    } else redirectResult = {status:'error',type,message:'We returned to Edvantage without a confirmation session. Request a fresh confirmation email and open its link again.'};
     for (const key of ['auth','error','error_description','error_code','type','access_token','refresh_token','expires_in','expires_at','token_type','code']) params.delete(key);
     url.hash = '';
     window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
