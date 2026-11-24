@@ -4,6 +4,7 @@
   "private": true,
   "description": "Collaborative study workspace, powered by Supabase.",
   "scripts": {
+    "build": "npm run build:css && node scripts/build.js",
     "build:css": "tailwindcss -i ./tailwind.css -o ./styles.css --minify",
     "watch:css": "tailwindcss -i ./tailwind.css -o ./styles.css --watch"
   },
