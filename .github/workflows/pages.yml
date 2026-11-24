@@ -32,12 +32,6 @@ jobs:
         run: |
           npm ci
           npm run build:css
-      - name: Create Supabase browser config
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-        run: |
-          node -e 'const fs=require("node:fs"); const url=process.env.SUPABASE_URL; const key=process.env.SUPABASE_PUBLISHABLE_KEY; if(!url||!key) throw Error("Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY repository secrets."); fs.writeFileSync("supabase-config.js", `window.EDVANTAGE_SUPABASE_CONFIG = ${JSON.stringify({url,publishableKey:key})};\n`);'
       - name: Prepare Pages artifact
         run: |
           mkdir -p _site

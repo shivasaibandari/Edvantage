@@ -18,12 +18,6 @@ The question bank starts empty because the source question document was not incl
 
 ## Publish with GitHub Pages
 
-The workflow in `.github/workflows/pages.yml` builds the Tailwind stylesheet and deploys the static app when changes reach `main` (or when manually started). It creates the browser config from repository Actions secrets at build time; `supabase-config.js` stays out of Git.
+The workflow in `.github/workflows/pages.yml` builds the Tailwind stylesheet and deploys the static app when changes reach `main` (or when manually started). `supabase-config.js` contains only the Supabase project URL and browser publishable key, which are public client configuration; never add a service-role key.
 
-Before the first deployment:
-
-1. In the repository settings, add Actions secrets `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` using the Supabase project URL and public publishable/anon key.
-2. Under **Settings → Pages**, set the publishing source to **GitHub Actions**.
-3. After deployment, add the published Pages URL to Supabase Auth’s allowed redirect URLs and set the site URL as needed for email links.
-
-Never use a Supabase service-role key in these secrets or in the browser app.
+Before the first deployment, set the repository’s Pages source to **GitHub Actions** under **Settings → Pages**. After deployment, add the published Pages URL to Supabase Auth’s allowed redirect URLs and set the site URL as needed for email links.
