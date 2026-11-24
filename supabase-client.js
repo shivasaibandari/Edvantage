@@ -21,15 +21,51 @@
   }
   function ready() { return Boolean(base && publicKey); }
   function endpoint(path) { if (!ready()) throw new Error('App configuration is missing.'); return `${base}${path}`; }
+  function appRedirectUrl() {
+    const path = window.location.pathname;
+    const root = path.endsWith('/') ? path : path.endsWith('.html') ? path.slice(0, path.lastIndexOf('/') + 1) : `${path}/`;
+    return `${window.location.origin}${root}?auth=confirmed`;
+  }
+  async function getUser(accessToken) { return request(endpoint('/auth/v1/user'), {}, accessToken); }
+  let redirectResult = null;
+  async function consumeAuthRedirect() {
+    const url = new URL(window.location.href);
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const params = url.searchParams;
+    const error = params.get('error_description') || params.get('error') || hash.get('error_description') || hash.get('error');
+    const type = hash.get('type') || params.get('type') || (params.get('auth') === 'confirmed' ? 'signup' : '');
+    const accessToken = hash.get('access_token') || params.get('access_token');
+    const refreshToken = hash.get('refresh_token') || params.get('refresh_token');
+    const code = params.get('code');
+    if (!error && !accessToken && !code && params.get('auth') !== 'confirmed') return null;
+    if (error) redirectResult = {status:'error', type, message:error};
+    else if (accessToken && refreshToken) {
+      try {
+        const user = await getUser(accessToken);
+        const expiresIn = Number(hash.get('expires_in') || params.get('expires_in') || 3600);
+        saveSession({access_token:accessToken,refresh_token:refreshToken,token_type:hash.get('token_type')||'bearer',expires_in:expiresIn,expires_at:Math.floor(Date.now()/1000)+expiresIn,user});
+        redirectResult = {status:'confirmed',type:type||'signup',email:user.email||''};
+      } catch (e) { redirectResult = {status:'error',type,message:`We couldn’t complete the confirmation: ${e.message}`}; }
+    } else if (code) {
+      redirectResult = {status:'error',type,message:'This confirmation link uses a code flow that this app cannot exchange. Request a fresh confirmation email and use the Edvantage confirmation link.'};
+    } else redirectResult = {status:'confirmed',type:type||'signup',email:''};
+    for (const key of ['auth','error','error_description','error_code','type','access_token','refresh_token','expires_in','expires_at','token_type','code']) params.delete(key);
+    url.hash = '';
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
+    return redirectResult;
+  }
   async function probe() {
     if (!ready()) throw new Error('App configuration is missing.');
     await request(endpoint('/auth/v1/settings'));
     return {url: base};
   }
   async function signUp(email, password, displayName) {
-    const result = await request(endpoint('/auth/v1/signup'), {method:'POST', body:JSON.stringify({email,password,data:{full_name:displayName}})});
+    const result = await request(`${endpoint('/auth/v1/signup')}?redirect_to=${encodeURIComponent(appRedirectUrl())}`, {method:'POST', body:JSON.stringify({email,password,data:{full_name:displayName}})});
     if (result?.access_token) saveSession(result);
     return result;
+  }
+  async function resendSignup(email) {
+    return request(`${endpoint('/auth/v1/resend')}?redirect_to=${encodeURIComponent(appRedirectUrl())}`, {method:'POST',body:JSON.stringify({type:'signup',email})});
   }
   async function signIn(email, password) {
     const result = await request(endpoint('/auth/v1/token?grant_type=password'), {method:'POST', body:JSON.stringify({email,password})});
@@ -44,6 +80,7 @@
     return result;
   }
   async function session() {
+    if (window.location.hash.includes('access_token=') || new URLSearchParams(window.location.search).has('code') || new URLSearchParams(window.location.search).has('auth')) await consumeAuthRedirect();
     const value = readSession();
     if (!value?.access_token) return null;
     if (value.expires_at && value.expires_at * 1000 < Date.now() + 30000) return await refresh();
@@ -71,5 +108,5 @@
     try { if (s?.access_token) await request(endpoint('/auth/v1/logout'), {method:'POST'}, s.access_token); }
     finally { saveSession(null); }
   }
-  window.EdvantageAuth = {ready,probe,signUp,signIn,signOut,session,api,rpc,config:{url:base,configured:ready()}};
+  window.EdvantageAuth = {ready,probe,signUp,signIn,resendSignup,signOut,session,consumeAuthRedirect,get redirectResult(){return redirectResult},api,rpc,config:{url:base,configured:ready()}};
 })();
