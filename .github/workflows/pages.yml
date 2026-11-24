@@ -1,0 +1,61 @@
+name: Deploy Edvantage to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  NODE_VERSION: 22
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies and build styles
+        run: |
+          npm ci
+          npm run build:css
+      - name: Create Supabase browser config
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          node -e 'const fs=require("node:fs"); const url=process.env.SUPABASE_URL; const key=process.env.SUPABASE_PUBLISHABLE_KEY; if(!url||!key) throw Error("Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY repository secrets."); fs.writeFileSync("supabase-config.js", `window.EDVANTAGE_SUPABASE_CONFIG = ${JSON.stringify({url,publishableKey:key})};\n`);'
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site
+          cp index.html styles.css app.js supabase-client.js supabase-data.js supabase-config.js _site/
+          touch _site/.nojekyll
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

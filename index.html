@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f7f3ed" />
+  <title>Edvantage — Your preparation, in one place</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <div class="site-header-inner">
+        <button class="brand" data-page="dashboard" aria-label="Edvantage home"><span class="brand-mark">E</span><span class="brand-copy"><b>Edvantage</b><small>YOUR STUDY WORKSPACE</small></span></button>
+        <div class="header-tools">
+          <div class="header-actions">
+            <button class="search-trigger" id="global-search-trigger" aria-label="Search anything" title="Search"><span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg></span></button>
+            <button class="icon-button" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg></button>
+            <button class="avatar avatar-small" id="top-avatar" aria-label="Account">E</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div class="module-dock">
+      <nav class="module-capsules" aria-label="Main navigation">
+        <button class="module-link active" data-page="dashboard">Dashboard</button>
+        <button class="module-link" data-page="notes">Notes</button>
+        <button class="module-link" data-page="pyq">PYQ analyser</button>
+        <button class="module-link" data-page="keywords">Keywords</button>
+        <button class="module-link" data-page="settings">Settings</button>
+      </nav>
+    </div>
+    <main class="main-area"><div class="content" id="content"></div></main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="modal-backdrop" id="modal-backdrop"><section class="modal" id="modal"></section></div>
+  <script src="supabase-config.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="supabase-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
