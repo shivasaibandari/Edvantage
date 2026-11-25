@@ -20,14 +20,14 @@ The question bank starts empty because the source question document was not incl
 
 Import `shivasaibandari/Edvantage` into Vercel with the repository root as the project root. The build creates `dist/` and Vercel deploys the `/api/notion/notes` serverless function alongside it. Configure the environment variables in the Notion setup section below before deploying.
 
-## Notion page index and embeds (Vercel)
+## Notion-backed shared notes (Vercel)
 
-Edvantage fetches only page titles, paper tags, subject tags, timestamps, and page URLs from the shared **Document Hub** data source. It does not fetch Notion page blocks, copy page bodies into Supabase, or write/delete Notion pages. Selecting an item opens its Notion page in an iframe beneath Edvantage’s own header and module navigation. The page’s Notion sharing permissions control whether a user can view or edit it; the “Open in Notion” link is available if the browser or Notion does not allow the embedded sign-in flow.
+The Notes module lists Notion article titles and tags as horizontal cards. Opening a card loads the page blocks into Edvantage’s note editor; saving changes writes the supported blocks and tags back to the Document Hub. Paper tags map to `Subjects`, subject tags map to `Type`, and the article title maps to `Doc name`. Page breadcrumbs follow the optional `Parent note` relation.
 
 Configure these Vercel environment variables:
 
-- `NOTION_API_KEY` — a Notion internal integration token with read access to the Document Hub data source.
+- `NOTION_API_KEY` — a Notion internal integration token with read, insert, and update content capabilities.
 - `NOTION_DATA_SOURCE_ID` — optional; defaults to the Document Hub data source (`416d1ba9-def4-8045-b320-000b2a0bb120`).
 - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` — the same public Supabase project values used by the app.
 
-Share the Document Hub with the Notion integration so it can list page properties. The existing database fields `Doc name`, `Subjects`, and `Type` map to the page title, paper tags, and subject tags. Individual users must have Notion access to a page for Notion to permit editing it; Edvantage only displays the page index and embeds the page URL.
+Share the Document Hub with that integration. Edvantage preserves supported page blocks and Notion text colors when loading and saving content. To keep nested notes, add a `Parent note` relation property on Document Hub that relates to Document Hub itself.
