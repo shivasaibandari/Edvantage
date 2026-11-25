@@ -65,6 +65,14 @@ async function listChildren(blockId, depth = 0) {
   return blocks;
 }
 
+function notionPropertyText(property) {
+  if (!property) return '';
+  if (property.url) return property.url;
+  if (property.rich_text) return property.rich_text.map(item => item.plain_text || item.text?.content || '').join('');
+  if (property.title) return property.title.map(item => item.plain_text || item.text?.content || '').join('');
+  return '';
+}
+
 async function allPages() {
   const pages = [];
   const source = await notion(`/data_sources/${dataSourceId()}`);
@@ -82,6 +90,8 @@ async function allPages() {
         title: page.properties?.['Doc name']?.title?.map(x => x.plain_text).join('') || 'Untitled note',
         papers: (page.properties?.Subjects?.multi_select || []).map(x => ({ 'P1A': 'PSIR-P1A', 'P1B': 'PSIR-P1B', 'P2A': 'PSIR-P2A', 'P2B': 'PSIR-P2B' }[x.name] || x.name)),
         subjects: (page.properties?.Type?.multi_select || []).map(x => x.name),
+        source: notionPropertyText(page.properties?.Source),
+        sourceDate: page.properties?.Date?.date?.start || notionPropertyText(page.properties?.Date),
         parentId: page.properties?.['Parent note']?.relation?.[0]?.id || null,
         createdAt: page.created_time,
         updatedAt: page.last_edited_time,
@@ -105,6 +115,8 @@ async function noteContent(id) {
   return {
     id: page.id,
     contentBlocks: await listChildren(page.id),
+    source: notionPropertyText(page.properties?.Source),
+    sourceDate: page.properties?.Date?.date?.start || notionPropertyText(page.properties?.Date),
     updatedAt: page.last_edited_time,
     url: page.url || page.public_url || `https://www.notion.so/${String(page.id || '').replace(/-/g, '')}`
   };
