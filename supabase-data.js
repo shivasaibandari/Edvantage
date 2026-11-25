@@ -142,6 +142,7 @@
     const visit=node=>{
       if(node.nodeType===Node.TEXT_NODE){if(node.nodeValue.trim())output.push(textBlock('paragraph',[node]));return}
       if(node.nodeType!==Node.ELEMENT_NODE)return;
+      if(node.hasAttribute('data-notion-preserved-block'))return;
       const tag=node.tagName.toLowerCase();
       if(tag==='ul'||tag==='ol'){output.push(...walkList(node,tag.toUpperCase()));return}
       if(/^h[1-3]$/.test(tag)){output.push(textBlock(`heading_${tag.slice(1)}`,[...node.childNodes]));return}
@@ -173,8 +174,11 @@
     }).join('');
   }
   function escHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  const editableNotionTypes=new Set(['paragraph','heading_1','heading_2','heading_3','bulleted_list_item','numbered_list_item','to_do','quote','code','toggle','callout']);
+  function hasPreservedNotionContent(block){return !editableNotionTypes.has(block.type)||(block.children||[]).some(hasPreservedNotionContent)}
   function blocksToHtml(blocks=[]) {
     return blocks.map(block=>{
+      if(hasPreservedNotionContent(block))return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">${escHtml(block.type.replace(/_/g,' '))} content preserved in Notion</aside>`;
       const value=block[block.type]||{},content=notionRichHtml(value.rich_text||[]),children=blocksToHtml(block.children||[]);
       if(block.type==='heading_1'||block.type==='heading_2'||block.type==='heading_3')return `<h${block.type.slice(-1)}>${content}</h${block.type.slice(-1)}>${children}`;
       if(block.type==='bulleted_list_item')return `<ul><li>${content}${children}</li></ul>`;
@@ -184,8 +188,8 @@
       if(block.type==='toggle')return `<details><summary>${content}</summary>${children}</details>`;
       if(block.type==='callout')return `<aside class="notion-callout">${content}${children}</aside>`;
       if(block.type==='to_do')return `<p><input type="checkbox" ${value.checked?'checked':''} disabled> ${content}</p>${children}`;
-      if(block.type==='child_page')return `<p>${escHtml(value.title||'Nested page')}</p>`;
-      return `<p>${content}</p>${children}`;
+      if(block.type==='child_page')return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">Nested Notion page preserved · ${escHtml(value.title||'Untitled page')}</aside>`;
+      return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">${escHtml(block.type.replace(/_/g,' '))} block preserved in Notion</aside>`;
     }).join('');
   }
   async function notionRequest(method, body, id) {
@@ -220,6 +224,12 @@
   }
   async function deleteNote(id) {
     return notionRequest('DELETE',null,id);
+  }
+  async function deleteKeyword(id) {
+    if (!workspaceId) throw new Error('Sign in to manage shared keywords.');
+    await remove('keyword_subjects',`workspace_id=eq.${q(workspaceId)}&keyword_id=eq.${q(id)}`);
+    await remove('keyword_papers',`workspace_id=eq.${q(workspaceId)}&keyword_id=eq.${q(id)}`);
+    await remove('keywords',`workspace_id=eq.${q(workspaceId)}&id=eq.${q(id)}`);
   }
   async function saveKeyword(keyword) {
     const isNew=!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(keyword.id); if(isNew) keyword.id=crypto.randomUUID();
@@ -272,5 +282,5 @@
   async function syncTheme(theme) {
     return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({preferences:{theme}})});
   }
-  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
+  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,deleteKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
 })();
