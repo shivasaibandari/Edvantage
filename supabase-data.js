@@ -293,5 +293,8 @@
   async function syncTheme(theme) {
     return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({preferences:{theme}})});
   }
-  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,deleteKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
+  async function saveDisplayName(name) {
+    return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({display_name:name})});
+  }
+  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,deleteKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,saveDisplayName,workspace:()=>workspaceId,user:()=>userId};
 })();

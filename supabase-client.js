@@ -108,5 +108,12 @@
     try { if (s?.access_token) await request(endpoint('/auth/v1/logout'), {method:'POST'}, s.access_token); }
     finally { saveSession(null); }
   }
-  window.EdvantageAuth = {ready,probe,signUp,signIn,resendSignup,signOut,session,consumeAuthRedirect,get redirectResult(){return redirectResult},api,rpc,config:{url:base,configured:ready()}};
+  async function updateUser(data) {
+    const s=await session();
+    if(!s?.access_token) throw new Error('Sign in to update your profile.');
+    const result=await request(endpoint('/auth/v1/user'),{method:'PATCH',body:JSON.stringify({data})},s.access_token);
+    saveSession({...s,user:result});
+    return result;
+  }
+  window.EdvantageAuth = {ready,probe,signUp,signIn,resendSignup,signOut,session,updateUser,consumeAuthRedirect,get redirectResult(){return redirectResult},api,rpc,config:{url:base,configured:ready()}};
 })();
