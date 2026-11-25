@@ -74,6 +74,9 @@ function notionProperty(properties, name) {
 function notionPropertyText(property) {
   if (!property) return '';
   if (property.url) return property.url;
+  if (property.date?.start) return property.date.start;
+  if (property.select?.name) return property.select.name;
+  if (property.multi_select) return property.multi_select.map(item => item.name).join(', ');
   if (property.rich_text) return property.rich_text.map(item => item.plain_text || item.text?.content || '').join('');
   if (property.title) return property.title.map(item => item.plain_text || item.text?.content || '').join('');
   return '';
@@ -144,9 +147,15 @@ function assertEditableBlocks(current) {
   }
 }
 
-async function removeChildren(pageId, current) {
+const editableBlockTypes = new Set(['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item', 'to_do', 'quote', 'code', 'toggle', 'callout']);
+function hasUnsupportedDescendant(block) {
+  return !editableBlockTypes.has(block.type) || (block.children || []).some(hasUnsupportedDescendant);
+}
+async function removeEditableChildren(pageId, current) {
   for (const block of current) {
-    await notion(`/blocks/${block.id}`, { method: 'DELETE' });
+    // Keep any block subtree the editor cannot serialize. Deleting an editable parent
+    // that contains an image/table/etc would otherwise erase that Notion content too.
+    if (!hasUnsupportedDescendant(block)) await notion(`/blocks/${block.id}`, { method: 'DELETE' });
   }
 }
 
@@ -183,9 +192,8 @@ async function savePage(body) {
       throw error;
     }
     existingBlocks = await listChildren(current.id);
-    assertEditableBlocks(existingBlocks);
     page = await notion(`/pages/${body.id}`, { method: 'PATCH', body: JSON.stringify({ properties }) });
-    await removeChildren(page.id, existingBlocks);
+    await removeEditableChildren(page.id, existingBlocks);
   } else {
     page = await notion('/pages', {
       method: 'POST',
