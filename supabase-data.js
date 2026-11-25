@@ -104,29 +104,123 @@
     if(rows?.[0]?.id){themesByName.set(key,rows[0].id);return rows[0].id;}
     throw new Error(`Could not create theme: ${name}`);
   }
-  async function notionRequest() {
+  function richTextFromNode(node, style={}) {
+    if(node.nodeType===Node.TEXT_NODE) {
+      const content=node.nodeValue||''; if(!content)return [];
+      const {link,...annotations}=style, chunks=[];
+      for(let i=0;i<content.length;i+=2000)chunks.push({type:'text',text:{content:content.slice(i,i+2000),...(link?{link}:{})},annotations});
+      return chunks;
+    }
+    if(node.nodeType!==Node.ELEMENT_NODE) return [];
+    const tag=node.tagName.toLowerCase(), next={...style};
+    if(tag==='strong'||tag==='b')next.bold=true;
+    if(tag==='em'||tag==='i')next.italic=true;
+    if(tag==='u')next.underline=true;
+    if(tag==='s'||tag==='del')next.strikethrough=true;
+    if(tag==='code')next.code=true;
+    if(tag==='a'&&node.href)next.link={url:node.href};
+    const colorMap={'#787774':'gray','#9b6b53':'brown','#d9730d':'orange','#cb912f':'yellow','#448361':'green','#337ea9':'blue','#9065b0':'purple','#c14c8a':'pink','#d44c47':'red','#ebeced':'gray_background','#e9e5e3':'brown_background','#faebdd':'orange_background','#fbf3db':'yellow_background','#edf3ec':'green_background','#e7f3f8':'blue_background','#f6f3f9':'purple_background','#f9f0f5':'pink_background','#fdebec':'red_background'};
+    const normalizedColor=value=>{const raw=String(value||'').trim().toLowerCase();if(raw.startsWith('#'))return raw;const rgb=raw.match(/\d+/g);return rgb?.length>=3?`#${rgb.slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('')}`:raw};
+    const foreground=colorMap[normalizedColor(node.style?.color)];
+    const background=colorMap[normalizedColor(node.style?.backgroundColor)];
+    if(foreground)next.color=foreground;
+    if(background)next.color=background;
+    return [...node.childNodes].flatMap(child=>richTextFromNode(child,next));
+  }
+  function htmlToNotionBlocks(html) {
+    const root=document.createElement('div'); root.innerHTML=html||'';
+    const output=[];
+    const rt=nodes=>nodes.flatMap(node=>richTextFromNode(node));
+    const textBlock=(type,nodes,extra={})=>({object:'block',type,[type]:{rich_text:rt(nodes),...extra}});
+    const walkList=(list,type)=>[...list.children].filter(x=>x.tagName==='LI').map(li=>{
+      const nested=[...li.children].filter(x=>['UL','OL'].includes(x.tagName));
+      const inline=[...li.childNodes].filter(x=>!(x.nodeType===Node.ELEMENT_NODE&&['UL','OL'].includes(x.tagName)));
+      const block=textBlock(type==='UL'?'bulleted_list_item':'numbered_list_item',inline);
+      if(nested.length)block[type==='UL'?'bulleted_list_item':'numbered_list_item'].children=nested.flatMap(x=>walkList(x,x.tagName));
+      return block;
+    });
+    const visit=node=>{
+      if(node.nodeType===Node.TEXT_NODE){if(node.nodeValue.trim())output.push(textBlock('paragraph',[node]));return}
+      if(node.nodeType!==Node.ELEMENT_NODE)return;
+      const tag=node.tagName.toLowerCase();
+      if(tag==='ul'||tag==='ol'){output.push(...walkList(node,tag.toUpperCase()));return}
+      if(/^h[1-3]$/.test(tag)){output.push(textBlock(`heading_${tag.slice(1)}`,[...node.childNodes]));return}
+      if(tag==='aside'&&(node.classList.contains('notion-callout')||node.classList.contains('note-callout'))){output.push(textBlock('callout',[...node.childNodes],{icon:{type:'emoji',emoji:'💡'}}));return}
+      if(tag==='blockquote'){output.push(textBlock('quote',[...node.childNodes]));return}
+      if(tag==='pre'){output.push(textBlock('code',[...node.childNodes],{language:'plain text'}));return}
+      if(tag==='details'){const summary=node.querySelector('summary'),children=[...node.children].filter(x=>x!==summary).flatMap(x=>htmlToNotionBlocks(x.outerHTML));output.push(textBlock('toggle',summary?[...summary.childNodes]:[],children.length?{children}:{}));return}
+      if(['p','div','section','article'].includes(tag)){if([...node.children].some(x=>['P','DIV','UL','OL','H1','H2','H3','BLOCKQUOTE'].includes(x.tagName))){[...node.childNodes].forEach(visit);return}output.push(textBlock('paragraph',[...node.childNodes]));return}
+      output.push(textBlock('paragraph',[node]));
+    };
+    [...root.childNodes].forEach(visit);
+    return output.slice(0,1000);
+  }
+  function notionRichHtml(items=[]) {
+    return items.map(item=>{
+      let value=escHtml(item.plain_text||item.text?.content||'');
+      const a=item.annotations||{};
+      if(a.code)value=`<code>${value}</code>`;
+      if(a.bold)value=`<strong>${value}</strong>`;
+      if(a.italic)value=`<em>${value}</em>`;
+      if(a.underline)value=`<u>${value}</u>`;
+      if(a.strikethrough)value=`<s>${value}</s>`;
+      if(a.color&&a.color!=='default'){
+        const colors={gray:'#787774',brown:'#9b6b53',orange:'#d9730d',yellow:'#cb912f',green:'#448361',blue:'#337ea9',purple:'#9065b0',pink:'#c14c8a',red:'#d44c47',gray_background:'#ebeced',brown_background:'#e9e5e3',orange_background:'#faebdd',yellow_background:'#fbf3db',green_background:'#edf3ec',blue_background:'#e7f3f8',purple_background:'#f6f3f9',pink_background:'#f9f0f5',red_background:'#fdebec'};
+        if(colors[a.color])value=`<span data-notion-color="${a.color}" style="${a.color.endsWith('_background')?`background-color:${colors[a.color]}`:`color:${colors[a.color]}`}">${value}</span>`;
+      }
+      if(item.href)value=`<a href="${escHtml(item.href)}">${value}</a>`;
+      return value;
+    }).join('');
+  }
+  function escHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function blocksToHtml(blocks=[]) {
+    return blocks.map(block=>{
+      const value=block[block.type]||{},content=notionRichHtml(value.rich_text||[]),children=blocksToHtml(block.children||[]);
+      if(block.type==='heading_1'||block.type==='heading_2'||block.type==='heading_3')return `<h${block.type.slice(-1)}>${content}</h${block.type.slice(-1)}>${children}`;
+      if(block.type==='bulleted_list_item')return `<ul><li>${content}${children}</li></ul>`;
+      if(block.type==='numbered_list_item')return `<ol><li>${content}${children}</li></ol>`;
+      if(block.type==='quote')return `<blockquote>${content}</blockquote>${children}`;
+      if(block.type==='code')return `<pre><code>${content}</code></pre>`;
+      if(block.type==='toggle')return `<details><summary>${content}</summary>${children}</details>`;
+      if(block.type==='callout')return `<aside class="notion-callout">${content}${children}</aside>`;
+      if(block.type==='to_do')return `<p><input type="checkbox" ${value.checked?'checked':''} disabled> ${content}</p>${children}`;
+      if(block.type==='child_page')return `<p>${escHtml(value.title||'Nested page')}</p>`;
+      return `<p>${content}</p>${children}`;
+    }).join('');
+  }
+  async function notionRequest(method, body, id) {
     const session=await api.session();
     if(!session?.access_token)throw new Error('Sign in to access shared notes.');
-    const response=await fetch('/api/notion/notes',{method:'GET',headers:{Authorization:`Bearer ${session.access_token}`}});
+    const url='/api/notion/notes'+(id?`?id=${encodeURIComponent(id)}`:'');
+    const response=await fetch(url,{method,headers:{Authorization:`Bearer ${session.access_token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
     const data=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(data.error||`Notion request failed (${response.status})`);
     return data;
   }
   async function loadNotionNotes(){
     try {
-      const result=await notionRequest();
+      const result=await notionRequest('GET');
       notionSyncIssue='';
       notionSubjectOptions=result.subjects||[];
       notionSupportsNesting=Boolean(result.supportsNesting);
-      return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:true,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
+      return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
     } catch(error) {
       notionSyncIssue=error.message||'Notion could not be reached.';
       throw error;
     }
   }
+  async function loadNotionNoteContent(id){const result=await notionRequest('GET',null,id);return {content:blocksToHtml(result.contentBlocks),updatedAt:stamp(result.updatedAt),notionUrl:result.url}}
   function notionSubjects(){return notionSubjectOptions}
   function notionCanNest(){return notionSupportsNesting}
   function notionError(){return notionSyncIssue}
+  async function saveNote(note) {
+    const result=await notionRequest('POST',{id:note.id,title:note.title,papers:note.papers||[],subjects:note.subjects||[],parentId:note.parentId||null,blocks:htmlToNotionBlocks(note.content)});
+    note.id=result.id;
+    note.notionUrl=result.url;
+  }
+  async function deleteNote(id) {
+    return notionRequest('DELETE',null,id);
+  }
   async function saveKeyword(keyword) {
     const isNew=!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(keyword.id); if(isNew) keyword.id=crypto.randomUUID();
     await post('keywords',[{id:keyword.id,workspace_id:workspaceId,term:keyword.text,created_by:keyword.createdBy||userId,updated_by:userId}],'id');
@@ -178,5 +272,5 @@
   async function syncTheme(theme) {
     return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({preferences:{theme}})});
   }
-  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
+  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
 })();
