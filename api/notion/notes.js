@@ -65,6 +65,12 @@ async function listChildren(blockId, depth = 0) {
   return blocks;
 }
 
+function notionProperty(properties, name) {
+  if (!properties) return undefined;
+  const key = Object.keys(properties).find(item => item.toLowerCase() === name.toLowerCase());
+  return key ? properties[key] : undefined;
+}
+
 function notionPropertyText(property) {
   if (!property) return '';
   if (property.url) return property.url;
@@ -90,8 +96,8 @@ async function allPages() {
         title: page.properties?.['Doc name']?.title?.map(x => x.plain_text).join('') || 'Untitled note',
         papers: (page.properties?.Subjects?.multi_select || []).map(x => ({ 'P1A': 'PSIR-P1A', 'P1B': 'PSIR-P1B', 'P2A': 'PSIR-P2A', 'P2B': 'PSIR-P2B' }[x.name] || x.name)),
         subjects: (page.properties?.Type?.multi_select || []).map(x => x.name),
-        source: notionPropertyText(page.properties?.Source),
-        sourceDate: page.properties?.Date?.date?.start || notionPropertyText(page.properties?.Date),
+        source: notionPropertyText(notionProperty(page.properties, 'Source')),
+        sourceDate: notionProperty(page.properties, 'Date')?.date?.start || notionPropertyText(notionProperty(page.properties, 'Date')),
         parentId: page.properties?.['Parent note']?.relation?.[0]?.id || null,
         createdAt: page.created_time,
         updatedAt: page.last_edited_time,
@@ -115,8 +121,8 @@ async function noteContent(id) {
   return {
     id: page.id,
     contentBlocks: await listChildren(page.id),
-    source: notionPropertyText(page.properties?.Source),
-    sourceDate: page.properties?.Date?.date?.start || notionPropertyText(page.properties?.Date),
+    source: notionPropertyText(notionProperty(page.properties, 'Source')),
+    sourceDate: notionProperty(page.properties, 'Date')?.date?.start || notionPropertyText(notionProperty(page.properties, 'Date')),
     updatedAt: page.last_edited_time,
     url: page.url || page.public_url || `https://www.notion.so/${String(page.id || '').replace(/-/g, '')}`
   };
