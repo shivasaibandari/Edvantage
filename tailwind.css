@@ -901,7 +901,7 @@
   .note-editor-canvas .notion-equation { padding:12px;text-align:center;font-family:ui-monospace,monospace; }
   .note-editor-canvas .notion-columns { display:flex;gap:20px; }
   .note-editor-canvas video,.note-editor-canvas audio { max-width:100%; }
-  .notion-preserved-block { display:block;margin:8px 0; }
+  .notion-preserved-block { display:contents;margin:0;padding:0;border:0;background:transparent;color:inherit;font-size:inherit; }
   @media(max-width:760px) {
     .notes-toolbar { flex-wrap:wrap; }
     .notes-toolbar-spacer { display:none; }
