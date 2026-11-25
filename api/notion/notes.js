@@ -1,4 +1,9 @@
 const NOTION_VERSION = '2026-03-11';
+const DEFAULT_DATA_SOURCE_ID = '416d1ba9-def4-8045-b320-000b2a0bb120';
+const notionToken = () => process.env.NOTION_API_KEY || process.env.NOTION_API_TOKEN || process.env.NOTION_TOKEN;
+const dataSourceId = () => process.env.NOTION_DATA_SOURCE_ID || DEFAULT_DATA_SOURCE_ID;
+const supabaseUrl = () => process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = () => process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 function send(res, status, body) {
   res.statusCode = status;
@@ -11,7 +16,7 @@ async function notion(path, init = {}) {
   const response = await fetch(`https://api.notion.com/v1${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+      Authorization: `Bearer ${notionToken()}`,
       'Notion-Version': NOTION_VERSION,
       'Content-Type': 'application/json',
       ...(init.headers || {})
@@ -29,9 +34,9 @@ async function notion(path, init = {}) {
 async function requireUser(req) {
   const bearer = req.headers.authorization || '';
   if (!bearer.startsWith('Bearer ')) return false;
-  const response = await fetch(`${process.env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+  const response = await fetch(`${supabaseUrl().replace(/\/$/, '')}/auth/v1/user`, {
     headers: {
-      apikey: process.env.SUPABASE_PUBLISHABLE_KEY,
+      apikey: supabaseKey(),
       Authorization: bearer
     }
   });
@@ -62,12 +67,12 @@ async function listChildren(blockId, depth = 0) {
 
 async function allPages() {
   const pages = [];
-  const source = await notion(`/data_sources/${process.env.NOTION_DATA_SOURCE_ID}`);
+  const source = await notion(`/data_sources/${dataSourceId()}`);
   const papers = (source.properties?.Subjects?.multi_select?.options || []).map(x => ({ 'P1A': 'PSIR-P1A', 'P1B': 'PSIR-P1B', 'P2A': 'PSIR-P2A', 'P2B': 'PSIR-P2B' }[x.name] || x.name));
   const subjects = (source.properties?.Type?.multi_select?.options || []).map(x => x.name);
   let cursor;
   do {
-    const result = await notion(`/data_sources/${process.env.NOTION_DATA_SOURCE_ID}/query`, {
+    const result = await notion(`/data_sources/${dataSourceId()}/query`, {
       method: 'POST',
       body: JSON.stringify({ page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) })
     });
@@ -92,7 +97,7 @@ async function allPages() {
 async function noteContent(id) {
   const page = await notion(`/pages/${id}`);
   const parent = page.parent || {};
-  if (parent.data_source_id !== process.env.NOTION_DATA_SOURCE_ID) {
+  if (parent.data_source_id !== dataSourceId()) {
     const error = new Error('This page is outside the connected Document Hub.');
     error.status = 404;
     throw error;
@@ -141,9 +146,9 @@ async function savePage(body) {
     Type: { multi_select: subjects.map(name => ({ name: String(name).slice(0, 100) })) }
   };
   if (body.parentId) {
-    const source = await notion(`/data_sources/${process.env.NOTION_DATA_SOURCE_ID}`);
+    const source = await notion(`/data_sources/${dataSourceId()}`);
     const parentRelation = source.properties?.['Parent note']?.relation;
-    if (source.properties?.['Parent note']?.type !== 'relation' || (parentRelation?.data_source_id && parentRelation.data_source_id !== process.env.NOTION_DATA_SOURCE_ID)) {
+    if (source.properties?.['Parent note']?.type !== 'relation' || (parentRelation?.data_source_id && parentRelation.data_source_id !== dataSourceId())) {
       const error = new Error('To save nested pages, add a “Parent note” relation property to Document Hub and relate it to Document Hub.');
       error.status = 409;
       throw error;
@@ -154,7 +159,7 @@ async function savePage(body) {
   let existingBlocks;
   if (body.id && /^[0-9a-f-]{36}$/i.test(body.id)) {
     const current = await notion(`/pages/${body.id}`);
-    if (current.parent?.data_source_id !== process.env.NOTION_DATA_SOURCE_ID) {
+    if (current.parent?.data_source_id !== dataSourceId()) {
       const error = new Error('This page is outside the connected Document Hub.');
       error.status = 404;
       throw error;
@@ -166,7 +171,7 @@ async function savePage(body) {
   } else {
     page = await notion('/pages', {
       method: 'POST',
-      body: JSON.stringify({ parent: { type: 'data_source_id', data_source_id: process.env.NOTION_DATA_SOURCE_ID }, properties })
+      body: JSON.stringify({ parent: { type: 'data_source_id', data_source_id: dataSourceId() }, properties })
     });
   }
   if (body.blocks.length) {
@@ -182,7 +187,7 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST, DELETE');
     return send(res, 405, { error: 'Method not allowed' });
   }
-  if (!process.env.NOTION_API_KEY || !process.env.NOTION_DATA_SOURCE_ID || !process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_KEY) {
+  if (!notionToken() || !supabaseUrl() || !supabaseKey()) {
     return send(res, 503, { error: 'Notion sync is not configured on the server yet.' });
   }
   try {
@@ -199,7 +204,7 @@ module.exports = async function handler(req, res) {
     const id = String(req.query?.id || '');
     if (!/^[0-9a-f-]{36}$/i.test(id)) return send(res, 400, { error: 'A valid note id is required.' });
     const page = await notion(`/pages/${id}`);
-    if (page.parent?.data_source_id !== process.env.NOTION_DATA_SOURCE_ID) return send(res, 404, { error: 'This page is outside the connected Document Hub.' });
+    if (page.parent?.data_source_id !== dataSourceId()) return send(res, 404, { error: 'This page is outside the connected Document Hub.' });
     await notion(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) });
     return send(res, 200, { ok: true });
   } catch (error) {

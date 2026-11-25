@@ -8,6 +8,7 @@
   let themesByName = new Map();
   let notionSubjectOptions = [];
   let notionSupportsNesting = false;
+  let notionSyncIssue = '';
   const q = value => encodeURIComponent(String(value));
   const stamp = value => value ? new Date(value).getTime() : Date.now();
   const iso = value => value ? new Date(value).toISOString() : new Date().toISOString();
@@ -71,7 +72,9 @@
     const byNote=(rows,key)=>{const m=new Map();for(const r of rows){const a=m.get(r[key])||[];a.push(r);m.set(r[key],a)}return m};
     const kvS=byNote(keySubjects,'keyword_id'),kvP=byNote(keyPapers,'keyword_id');
     const av=byNote(answerVersions,'question_id');
-    const noteRows=await loadNotionNotes();
+    let noteRows=[];
+    try { noteRows=await loadNotionNotes(); }
+    catch(error) { notionSyncIssue=error.message||'Notion could not be reached.'; }
     const keywordRows=keywords.map(k=>({id:k.id,text:k.term,subjects:(kvS.get(k.id)||[]).map(x=>subjectNames.get(x.subject_id)).filter(Boolean),papers:(kvP.get(k.id)||[]).map(x=>paperCodes.get(x.paper_id)).filter(Boolean),createdBy:k.created_by,createdAt:stamp(k.created_at)}));
     const questionRows=questions.map(x=>({id:x.id,year:x.year,paper:paperCodes.get(x.paper_id)||'',number:x.question_number,text:x.question_text,subject:subjectNames.get(x.subject_id)||'',theme:themeNames.get(x.theme_id)||'',area:x.syllabus_area||'',sourcePage:x.source_page||null,sourceDocument:x.source_document||'',kind:x.question_kind||'question',metadata:x.source_metadata||{},marks:x.marks,wordLimit:x.word_limit,createdBy:x.created_by}));
     const answersByQuestion={};
@@ -196,14 +199,21 @@
     return data;
   }
   async function loadNotionNotes(){
-    const result=await notionRequest('GET');
-    notionSubjectOptions=result.subjects||[];
-    notionSupportsNesting=Boolean(result.supportsNesting);
-    return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
+    try {
+      const result=await notionRequest('GET');
+      notionSyncIssue='';
+      notionSubjectOptions=result.subjects||[];
+      notionSupportsNesting=Boolean(result.supportsNesting);
+      return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
+    } catch(error) {
+      notionSyncIssue=error.message||'Notion could not be reached.';
+      throw error;
+    }
   }
   async function loadNotionNoteContent(id){const result=await notionRequest('GET',null,id);return {content:blocksToHtml(result.contentBlocks),updatedAt:stamp(result.updatedAt),notionUrl:result.url}}
   function notionSubjects(){return notionSubjectOptions}
   function notionCanNest(){return notionSupportsNesting}
+  function notionError(){return notionSyncIssue}
   async function saveNote(note) {
     const result=await notionRequest('POST',{id:note.id,title:note.title,papers:note.papers||[],subjects:note.subjects||[],parentId:note.parentId||null,blocks:htmlToNotionBlocks(note.content)});
     note.id=result.id;
@@ -263,5 +273,5 @@
   async function syncTheme(theme) {
     return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({preferences:{theme}})});
   }
-  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
+  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,notionError,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
 })();

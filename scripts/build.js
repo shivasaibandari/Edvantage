@@ -8,8 +8,8 @@ const root = path.join(__dirname, '..');
 for (const file of ['index.html','styles.css','app.js','supabase-client.js','supabase-data.js']) {
   fs.copyFileSync(path.join(root, file), path.join(output, file));
 }
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 if (supabaseUrl && publishableKey) {
   const config = `window.EDVANTAGE_SUPABASE_CONFIG = ${JSON.stringify({url:supabaseUrl,publishableKey})};\n`;
   fs.writeFileSync(path.join(output, 'supabase-config.js'), config);
