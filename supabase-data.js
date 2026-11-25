@@ -203,13 +203,13 @@
       notionSyncIssue='';
       notionSubjectOptions=result.subjects||[];
       notionSupportsNesting=Boolean(result.supportsNesting);
-      return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
+      return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url,source:n.source||'',sourceDate:n.sourceDate||''}));
     } catch(error) {
       notionSyncIssue=error.message||'Notion could not be reached.';
       throw error;
     }
   }
-  async function loadNotionNoteContent(id){const result=await notionRequest('GET',null,id);return {content:blocksToHtml(result.contentBlocks),updatedAt:stamp(result.updatedAt),notionUrl:result.url}}
+  async function loadNotionNoteContent(id){const result=await notionRequest('GET',null,id);return {content:blocksToHtml(result.contentBlocks),updatedAt:stamp(result.updatedAt),notionUrl:result.url,source:result.source||'',sourceDate:result.sourceDate||''}}
   function notionSubjects(){return notionSubjectOptions}
   function notionCanNest(){return notionSupportsNesting}
   function notionError(){return notionSyncIssue}
