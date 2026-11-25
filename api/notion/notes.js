@@ -43,28 +43,6 @@ async function requireUser(req) {
   return response.ok;
 }
 
-async function listChildren(blockId, depth = 0) {
-  const blocks = [];
-  let cursor;
-  do {
-    const query = new URLSearchParams({ page_size: '100' });
-    if (cursor) query.set('start_cursor', cursor);
-    const page = await notion(`/blocks/${blockId}/children?${query}`);
-    for (const block of page.results || []) {
-      const child = { ...block, children: [] };
-      if (block.has_children && depth >= 10) {
-        const error = new Error('This Notion page is nested too deeply for a safe Edvantage edit.');
-        error.status = 409;
-        throw error;
-      }
-      if (block.has_children) child.children = await listChildren(block.id, depth + 1);
-      blocks.push(child);
-    }
-    cursor = page.has_more ? page.next_cursor : null;
-  } while (cursor);
-  return blocks;
-}
-
 async function allPages() {
   const pages = [];
   const source = await notion(`/data_sources/${dataSourceId()}`);
@@ -85,7 +63,7 @@ async function allPages() {
         parentId: page.properties?.['Parent note']?.relation?.[0]?.id || null,
         createdAt: page.created_time,
         updatedAt: page.last_edited_time,
-        url: page.url
+        url: page.url || page.public_url || `https://www.notion.so/${String(page.id || '').replace(/-/g, '')}`
       }));
       pages.push(...batch);
     }
@@ -94,97 +72,9 @@ async function allPages() {
   return { notes: pages, papers, subjects, supportsNesting: source.properties?.['Parent note']?.type === 'relation' };
 }
 
-async function noteContent(id) {
-  const page = await notion(`/pages/${id}`);
-  const parent = page.parent || {};
-  if (parent.data_source_id !== dataSourceId()) {
-    const error = new Error('This page is outside the connected Document Hub.');
-    error.status = 404;
-    throw error;
-  }
-  return {
-    id: page.id,
-    contentBlocks: await listChildren(page.id),
-    updatedAt: page.last_edited_time,
-    url: page.url
-  };
-}
-
-function validBlocks(value) {
-  return Array.isArray(value) && value.length <= 1000 && value.every(block =>
-    block && typeof block === 'object' && ['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item', 'to_do', 'quote', 'code', 'toggle', 'callout'].includes(block.type)
-  );
-}
-
-function assertEditableBlocks(current) {
-  const supported = new Set(['paragraph', 'heading_1', 'heading_2', 'heading_3', 'bulleted_list_item', 'numbered_list_item', 'to_do', 'quote', 'code', 'toggle', 'callout']);
-  const hasUnsupported = blocks => blocks.some(block => !supported.has(block.type) || hasUnsupported(block.children || []));
-  if (hasUnsupported(current)) {
-    const error = new Error('This Notion page contains blocks Edvantage cannot safely preserve. Keep editing it in Notion or remove the unsupported blocks there first.');
-    error.status = 409;
-    throw error;
-  }
-}
-
-async function removeChildren(pageId, current) {
-  for (const block of current) {
-    await notion(`/blocks/${block.id}`, { method: 'DELETE' });
-  }
-}
-
-async function savePage(body) {
-  if (typeof body.title !== 'string' || body.title.length > 200 || !validBlocks(body.blocks)) {
-    const error = new Error('The note title or editor blocks are invalid.');
-    error.status = 400;
-    throw error;
-  }
-  const papers = Array.isArray(body.papers) ? body.papers : [];
-  const subjects = Array.isArray(body.subjects) ? body.subjects : [];
-  const properties = {
-    'Doc name': { title: [{ text: { content: body.title.trim() || 'Untitled note' } }] },
-    Subjects: { multi_select: papers.map(name => ({ name: ({ 'PSIR-P1A': 'P1A', 'PSIR-P1B': 'P1B', 'PSIR-P2A': 'P2A', 'PSIR-P2B': 'P2B' }[name] || String(name)).slice(0, 100) })) },
-    Type: { multi_select: subjects.map(name => ({ name: String(name).slice(0, 100) })) }
-  };
-  if (body.parentId) {
-    const source = await notion(`/data_sources/${dataSourceId()}`);
-    const parentRelation = source.properties?.['Parent note']?.relation;
-    if (source.properties?.['Parent note']?.type !== 'relation' || (parentRelation?.data_source_id && parentRelation.data_source_id !== dataSourceId())) {
-      const error = new Error('To save nested pages, add a “Parent note” relation property to Document Hub and relate it to Document Hub.');
-      error.status = 409;
-      throw error;
-    }
-    properties['Parent note'] = { relation: [{ id: body.parentId }] };
-  }
-  let page;
-  let existingBlocks;
-  if (body.id && /^[0-9a-f-]{36}$/i.test(body.id)) {
-    const current = await notion(`/pages/${body.id}`);
-    if (current.parent?.data_source_id !== dataSourceId()) {
-      const error = new Error('This page is outside the connected Document Hub.');
-      error.status = 404;
-      throw error;
-    }
-    existingBlocks = await listChildren(current.id);
-    assertEditableBlocks(existingBlocks);
-    page = await notion(`/pages/${body.id}`, { method: 'PATCH', body: JSON.stringify({ properties }) });
-    await removeChildren(page.id, existingBlocks);
-  } else {
-    page = await notion('/pages', {
-      method: 'POST',
-      body: JSON.stringify({ parent: { type: 'data_source_id', data_source_id: dataSourceId() }, properties })
-    });
-  }
-  if (body.blocks.length) {
-    for (let index = 0; index < body.blocks.length; index += 100) {
-      await notion(`/blocks/${page.id}/children`, { method: 'PATCH', body: JSON.stringify({ children: body.blocks.slice(index, index + 100) }) });
-    }
-  }
-  return { id: page.id, url: page.url };
-}
-
 module.exports = async function handler(req, res) {
-  if (!['GET', 'POST', 'DELETE'].includes(req.method)) {
-    res.setHeader('Allow', 'GET, POST, DELETE');
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET');
     return send(res, 405, { error: 'Method not allowed' });
   }
   if (!notionToken() || !supabaseUrl() || !supabaseKey()) {
@@ -192,21 +82,7 @@ module.exports = async function handler(req, res) {
   }
   try {
     if (!await requireUser(req)) return send(res, 401, { error: 'Sign in to access shared notes.' });
-    if (req.method === 'GET') {
-      const id = String(req.query?.id || '');
-      if (id) {
-        if (!/^[0-9a-f-]{36}$/i.test(id)) return send(res, 400, { error: 'A valid note id is required.' });
-        return send(res, 200, await noteContent(id));
-      }
-      return send(res, 200, await allPages());
-    }
-    if (req.method === 'POST') return send(res, 200, await savePage(req.body || {}));
-    const id = String(req.query?.id || '');
-    if (!/^[0-9a-f-]{36}$/i.test(id)) return send(res, 400, { error: 'A valid note id is required.' });
-    const page = await notion(`/pages/${id}`);
-    if (page.parent?.data_source_id !== dataSourceId()) return send(res, 404, { error: 'This page is outside the connected Document Hub.' });
-    await notion(`/pages/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) });
-    return send(res, 200, { ok: true });
+    return send(res, 200, await allPages());
   } catch (error) {
     return send(res, error.status || 502, { error: error.message || 'Notion request failed.' });
   }
