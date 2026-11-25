@@ -20,14 +20,14 @@ The question bank starts empty because the source question document was not incl
 
 Import `shivasaibandari/Edvantage` into Vercel with the repository root as the project root. The build creates `dist/` and Vercel deploys the `/api/notion/notes` serverless function alongside it. Configure the environment variables in the Notion setup section below before deploying.
 
-## Notion-backed shared notes (Vercel)
+## Notion page index and embeds (Vercel)
 
-The Notes module uses the shared **Document Hub** data source in Notion. The Vercel function at `/api/notion/notes` validates the signed-in user with Supabase before reading or writing. Configure these Vercel environment variables:
+Edvantage fetches only page titles, paper tags, subject tags, timestamps, and page URLs from the shared **Document Hub** data source. It does not fetch Notion page blocks, copy page bodies into Supabase, or write/delete Notion pages. Selecting an item opens its Notion page in an iframe beneath Edvantage’s own header and module navigation. The page’s Notion sharing permissions control whether a user can view or edit it; the “Open in Notion” link is available if the browser or Notion does not allow the embedded sign-in flow.
 
-- `NOTION_API_KEY` — secret for a Notion internal integration with read, insert, and update content capabilities.
+Configure these Vercel environment variables:
+
+- `NOTION_API_KEY` — a Notion internal integration token with read access to the Document Hub data source.
 - `NOTION_DATA_SOURCE_ID` — optional; defaults to the Document Hub data source (`416d1ba9-def4-8045-b320-000b2a0bb120`).
 - `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` — the same public Supabase project values used by the app.
 
-Share the Document Hub with that Notion integration. The existing database fields `Doc name`, `Subjects`, and `Type` map to note title, paper tags, and subject tags. Use **Sync Notion** to pull edits made in Notion. Edvantage sends note edits to Notion when saved. Existing Supabase note rows are left untouched and are not imported. If Notion is misconfigured, the rest of Edvantage still loads and the Notes page shows the sync error.
-
-Saving a note rebuilds its page body from the editor’s supported blocks. Edvantage refuses to overwrite a page that contains unsupported Notion blocks. To preserve nested notes, add a `Parent note` relation property on Document Hub that relates to Document Hub itself; without it, notes remain flat.
+Share the Document Hub with the Notion integration so it can list page properties. The existing database fields `Doc name`, `Subjects`, and `Type` map to the page title, paper tags, and subject tags. Individual users must have Notion access to a page for Notion to permit editing it; Edvantage only displays the page index and embeds the page URL.
