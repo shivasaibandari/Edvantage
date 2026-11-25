@@ -177,20 +177,28 @@
   const editableNotionTypes=new Set(['paragraph','heading_1','heading_2','heading_3','bulleted_list_item','numbered_list_item','to_do','quote','code','toggle','callout']);
   function hasPreservedNotionContent(block){return !editableNotionTypes.has(block.type)||(block.children||[]).some(hasPreservedNotionContent)}
   function blocksToHtml(blocks=[]) {
-    return blocks.map(block=>{
-      if(hasPreservedNotionContent(block))return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">${escHtml(block.type.replace(/_/g,' '))} content preserved in Notion</aside>`;
-      const value=block[block.type]||{},content=notionRichHtml(value.rich_text||[]),children=blocksToHtml(block.children||[]);
-      if(block.type==='heading_1'||block.type==='heading_2'||block.type==='heading_3')return `<h${block.type.slice(-1)}>${content}</h${block.type.slice(-1)}>${children}`;
-      if(block.type==='bulleted_list_item')return `<ul><li>${content}${children}</li></ul>`;
-      if(block.type==='numbered_list_item')return `<ol><li>${content}${children}</li></ol>`;
-      if(block.type==='quote')return `<blockquote>${content}</blockquote>${children}`;
-      if(block.type==='code')return `<pre><code>${content}</code></pre>`;
-      if(block.type==='toggle')return `<details><summary>${content}</summary>${children}</details>`;
-      if(block.type==='callout')return `<aside class="notion-callout">${content}${children}</aside>`;
-      if(block.type==='to_do')return `<p><input type="checkbox" ${value.checked?'checked':''} disabled> ${content}</p>${children}`;
-      if(block.type==='child_page')return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">Nested Notion page preserved · ${escHtml(value.title||'Untitled page')}</aside>`;
-      return `<aside class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">${escHtml(block.type.replace(/_/g,' '))} block preserved in Notion</aside>`;
-    }).join('');
+    const render=block=>{
+      const value=block[block.type]||{},content=notionRichHtml(value.rich_text||value.title||[]),children=blocksToHtml(block.children||[]),caption=notionRichHtml(value.caption||[]),preserve=hasPreservedNotionContent(block),keep=html=>preserve?`<div class="notion-preserved-block" contenteditable="false" data-notion-preserved-block="true">${html}</div>`:html;
+      if(/^heading_[123]$/.test(block.type)){const n=block.type.slice(-1);return keep(`<h${n}>${content}</h${n}>${children}`)}
+      if(block.type==='paragraph')return keep(`<p>${content||'<br>'}</p>${children}`);
+      if(block.type==='bulleted_list_item')return keep(`<ul><li>${content}${children}</li></ul>`);
+      if(block.type==='numbered_list_item')return keep(`<ol><li>${content}${children}</li></ol>`);
+      if(block.type==='quote')return keep(`<blockquote>${content}</blockquote>${children}`);
+      if(block.type==='code')return keep(`<pre><code>${content}</code></pre>`);
+      if(block.type==='toggle')return keep(`<details><summary>${content}</summary>${children}</details>`);
+      if(block.type==='callout')return keep(`<aside class="notion-callout">${value.icon?.emoji?`<span class="notion-callout-icon">${escHtml(value.icon.emoji)}</span>`:''}<span>${content}</span>${children}</aside>`);
+      if(block.type==='to_do')return keep(`<p class="notion-todo"><input type="checkbox" ${value.checked?'checked':''} disabled> ${content}${children}</p>`);
+      if(block.type==='divider')return '<hr class="notion-divider">';
+      if(block.type==='table')return keep(`<table class="notion-table"><tbody>${(block.children||[]).map(row=>`<tr>${(row.table_row?.cells||[]).map(cell=>`<td>${notionRichHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+      if(['image','file','pdf'].includes(block.type)){const file=value.file||value.external||{},url=file.url||'',label=caption||escHtml(value.name||block.type.toUpperCase());return keep(url?`<figure class="notion-media"><a href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${block.type==='image'?`<img src="${escHtml(url)}" alt="${escHtml(value.name||'Notion image')}">`:label}</a>${caption?`<figcaption>${caption}</figcaption>`:''}</figure>`:`<div class="notion-embed-card">${label}</div>`)}
+      if(['bookmark','embed','link_preview','child_page','child_database'].includes(block.type)){const url=value.url||value.link_preview?.url||'',title=value.title||value.caption?.[0]?.plain_text||(block.type==='child_page'?'Nested page':block.type==='child_database'?'Database':'Open link');return keep(url?`<a class="notion-embed-card" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer"><strong>${escHtml(title)}</strong><small>${escHtml(url)}</small></a>`:`<div class="notion-embed-card"><strong>${escHtml(title)}</strong>${children}</div>`)}
+      if(['video','audio'].includes(block.type)){const media=value.file||value.external||{},url=media.url||'';return keep(url?`<${block.type} controls preload="metadata" src="${escHtml(url)}"></${block.type}>${caption?`<figcaption>${caption}</figcaption>`:''}`:`<div class="notion-embed-card">${escHtml(value.name||block.type)}</div>`)}
+      if(block.type==='equation')return keep(`<div class="notion-equation">${escHtml(value.expression||'')}</div>`);
+      if(block.type==='column_list'||block.type==='column')return keep(`<div class="notion-columns">${children}</div>`);
+      const fallback=content||caption||escHtml(value.title||value.name||value.expression||'');
+      return keep(`<div class="notion-embed-card">${fallback||escHtml(block.type.replace(/_/g,' '))}${children}</div>`);
+    };
+    return blocks.map(render).join('');
   }
   async function notionRequest(method, body, id) {
     const session=await api.session();
@@ -217,8 +225,11 @@
   function notionSubjects(){return notionSubjectOptions}
   function notionCanNest(){return notionSupportsNesting}
   function notionError(){return notionSyncIssue}
-  async function saveNote(note) {
-    const result=await notionRequest('POST',{id:note.id,title:note.title,papers:note.papers||[],subjects:note.subjects||[],parentId:note.parentId||null,blocks:htmlToNotionBlocks(note.content)});
+  async function saveNote(note, options={}) {
+    const contentChanged=options.contentChanged!==false;
+    const payload={id:note.id,title:note.title,papers:note.papers||[],subjects:note.subjects||[],parentId:note.parentId||null,contentChanged};
+    if(contentChanged)payload.blocks=htmlToNotionBlocks(note.content);
+    const result=await notionRequest('POST',payload);
     note.id=result.id;
     note.notionUrl=result.url;
   }

@@ -866,3 +866,51 @@
   .search-progress { flex:none;color:var(--muted);font-size:11px; }
   .note-editor-heading textarea.note-title-input { width:100%;display:block;padding:0;border:0!important;background:transparent!important;box-shadow:none!important;outline:0; }
 }
+
+/* Notes: compact responsive controls, distinct paper labels and Notion-like blocks */
+@layer components {
+  .tag-pin { display:none!important; }
+  .paper-tag.paper-gs1 { background:#265d97!important;color:#fff!important; }
+  .paper-tag.paper-gs2 { background:#7046a8!important;color:#fff!important; }
+  .paper-tag.paper-gs3 { background:#c35b1d!important;color:#fff!important; }
+  .paper-tag.paper-gs4 { background:#b43752!important;color:#fff!important; }
+  .paper-tag.paper-psir-p1a { background:#087e8b!important;color:#fff!important; }
+  .paper-tag.paper-psir-p1b { background:#81532d!important;color:#fff!important; }
+  .paper-tag.paper-psir-p2a { background:#36744d!important;color:#fff!important; }
+  .paper-tag.paper-psir-p2b { background:#4b518a!important;color:#fff!important; }
+  .paper-tag.paper-essay { background:#9a397e!important;color:#fff!important; }
+  .note-card-tag-groups { display:grid;grid-template-columns:minmax(0,1fr);gap:5px; }
+  .note-card-tag-group { display:flex;flex-wrap:wrap;align-items:center;gap:8px;border:0!important;padding:0!important; }
+  .note-card-tag-group>b { flex:none; }
+  .note-card-source-meta { color:var(--muted);font-size:12px;line-height:1.4;overflow-wrap:anywhere; }
+  .notes-toolbar-spacer { flex:1 1 auto; }
+  .notes-sort-label { color:var(--muted);font-size:11px;white-space:nowrap; }
+  .notes-toolbar #note-sort { width:auto;min-width:150px;max-width:100%; }
+  .note-editor-canvas { font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.65;letter-spacing:0; }
+  .note-editor-canvas p { margin:.35em 0; }
+  .note-editor-canvas ul,.note-editor-canvas ol { margin:.35em 0;padding-left:1.55em; }
+  .note-editor-canvas li { padding-left:.15em;margin:.18em 0; }
+  .note-editor-canvas .notion-media { margin:14px 0;max-width:100%; }
+  .note-editor-canvas .notion-media img { display:block;max-width:100%;height:auto;border-radius:4px; }
+  .note-editor-canvas .notion-media figcaption { margin-top:8px;color:var(--muted);font-size:.88em; }
+  .note-editor-canvas .notion-embed-card { display:grid;gap:5px;margin:12px 0;padding:14px 16px;border:1px solid var(--rule);border-radius:4px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere; }
+  .note-editor-canvas .notion-embed-card small { color:var(--muted); }
+  .note-editor-canvas .notion-table { width:100%;border-collapse:collapse;margin:12px 0; }
+  .note-editor-canvas .notion-table td { min-width:70px;padding:7px 10px;border:1px solid var(--rule);vertical-align:top; }
+  .note-editor-canvas .notion-divider { border:0;border-top:1px solid var(--rule);margin:18px 0; }
+  .note-editor-canvas .notion-equation { padding:12px;text-align:center;font-family:ui-monospace,monospace; }
+  .note-editor-canvas .notion-columns { display:flex;gap:20px; }
+  .note-editor-canvas video,.note-editor-canvas audio { max-width:100%; }
+  .notion-preserved-block { display:block;margin:8px 0; }
+  @media(max-width:760px) {
+    .notes-toolbar { flex-wrap:wrap; }
+    .notes-toolbar-spacer { display:none; }
+    .notes-toolbar #note-sort { margin-left:auto;min-width:0;flex:1 1 150px; }
+    .notes-toolbar .result-count { margin-left:auto; }
+    .note-editor-canvas .notion-columns { display:block; }
+  }
+  @media(max-width:460px) {
+    .notes-toolbar #note-sort { flex-basis:100%;width:100%; }
+    .notes-toolbar .result-count { flex-basis:100%;text-align:right; }
+  }
+}

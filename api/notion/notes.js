@@ -160,7 +160,8 @@ async function removeEditableChildren(pageId, current) {
 }
 
 async function savePage(body) {
-  if (typeof body.title !== 'string' || body.title.length > 200 || !validBlocks(body.blocks)) {
+  const contentChanged = body.contentChanged !== false;
+  if (typeof body.title !== 'string' || body.title.length > 200 || (contentChanged && !validBlocks(body.blocks))) {
     const error = new Error('The note title or editor blocks are invalid.');
     error.status = 400;
     throw error;
@@ -191,16 +192,16 @@ async function savePage(body) {
       error.status = 404;
       throw error;
     }
-    existingBlocks = await listChildren(current.id);
+    if (contentChanged) existingBlocks = await listChildren(current.id);
     page = await notion(`/pages/${body.id}`, { method: 'PATCH', body: JSON.stringify({ properties }) });
-    await removeEditableChildren(page.id, existingBlocks);
+    if (contentChanged) await removeEditableChildren(page.id, existingBlocks);
   } else {
     page = await notion('/pages', {
       method: 'POST',
       body: JSON.stringify({ parent: { type: 'data_source_id', data_source_id: dataSourceId() }, properties })
     });
   }
-  if (body.blocks.length) {
+  if (contentChanged && body.blocks.length) {
     for (let index = 0; index < body.blocks.length; index += 100) {
       await notion(`/blocks/${page.id}/children`, { method: 'PATCH', body: JSON.stringify({ children: body.blocks.slice(index, index + 100) }) });
     }
