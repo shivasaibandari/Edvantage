@@ -25,6 +25,10 @@
   --radius-card: 14px;
 }
 
+@layer components {
+  .notes-heading-actions { @apply flex flex-wrap items-center justify-end gap-2; }
+}
+
 @layer base {
   :root { color-scheme: light; --canvas:#f4f5f2; --paper:#fdfdfb; --ink:#171a18; --body:#303632; --muted:#5b645e; --faint:#727b75; --rule:rgb(23 26 24 / 9%); --accent:#26756c; --accent-dark:#185b54; --accent-pale:#e4f0ed; --raised:#fff; --shadow:0 18px 45px rgb(23 26 24 / 14%); }
   *,*::before,*::after { box-sizing:border-box; }

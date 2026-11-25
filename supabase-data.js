@@ -6,6 +6,8 @@
   let papersByCode = new Map();
   let subjectsByName = new Map();
   let themesByName = new Map();
+  let notionSubjectOptions = [];
+  let notionSupportsNesting = false;
   const q = value => encodeURIComponent(String(value));
   const stamp = value => value ? new Date(value).getTime() : Date.now();
   const iso = value => value ? new Date(value).toISOString() : new Date().toISOString();
@@ -46,14 +48,10 @@
   async function loadWorkspace() {
     if (!workspaceId||!userId) throw new Error('Sign in to load the workspace.');
     const w=`workspace_id=eq.${q(workspaceId)}`;
-    const [papers,subjects,themes,notes,notePapers,noteSubjects,noteVersions,keywords,keySubjects,keyPapers,questions,answers,answerVersions,practice,profiles]=await Promise.all([
+    const [papers,subjects,themes,keywords,keySubjects,keyPapers,questions,answers,answerVersions,practice,profiles]=await Promise.all([
       getAll('paper_tags','select=*&order=sort_order.asc'),
       getAll('subjects',`select=*&${w}&order=normalized_name.asc`),
       getAll('themes',`select=*&${w}&order=normalized_name.asc`),
-      getAll('notes',`select=*&${w}&deleted_at=is.null&order=updated_at.desc,id.asc`),
-      getAll('note_papers',`select=*&${w}`),
-      getAll('note_subjects',`select=*&${w}`),
-      getAll('note_versions',`select=*&${w}&order=changed_at.desc`),
       getAll('keywords',`select=*&${w}&order=term.asc`),
       getAll('keyword_subjects',`select=*&${w}`),
       getAll('keyword_papers',`select=*&${w}`),
@@ -71,16 +69,15 @@
     const subjectNames=new Map(subjects.map(s=>[s.id,s.name]));
     const themeNames=new Map(themes.map(t=>[t.id,t.name]));
     const byNote=(rows,key)=>{const m=new Map();for(const r of rows){const a=m.get(r[key])||[];a.push(r);m.set(r[key],a)}return m};
-    const np=byNote(notePapers,'note_id'),ns=byNote(noteSubjects,'note_id'),nver=byNote(noteVersions,'note_id');
     const kvS=byNote(keySubjects,'keyword_id'),kvP=byNote(keyPapers,'keyword_id');
     const av=byNote(answerVersions,'question_id');
-    const noteRows=notes.map(n=>({id:n.id,title:n.title,content:n.content?.html||'',parentId:n.content?.parentId||null,papers:(np.get(n.id)||[]).map(x=>paperCodes.get(x.paper_id)).filter(Boolean),subjects:(ns.get(n.id)||[]).map(x=>subjectNames.get(x.subject_id)).filter(Boolean),createdBy:n.created_by,updatedBy:n.updated_by,createdAt:stamp(n.created_at),updatedAt:stamp(n.updated_at),history:(nver.get(n.id)||[]).map(v=>({title:v.title,content:v.content?.html||'',updatedAt:stamp(v.changed_at),updatedBy:v.changed_by}))}));
+    const noteRows=await loadNotionNotes();
     const keywordRows=keywords.map(k=>({id:k.id,text:k.term,subjects:(kvS.get(k.id)||[]).map(x=>subjectNames.get(x.subject_id)).filter(Boolean),papers:(kvP.get(k.id)||[]).map(x=>paperCodes.get(x.paper_id)).filter(Boolean),createdBy:k.created_by,createdAt:stamp(k.created_at)}));
     const questionRows=questions.map(x=>({id:x.id,year:x.year,paper:paperCodes.get(x.paper_id)||'',number:x.question_number,text:x.question_text,subject:subjectNames.get(x.subject_id)||'',theme:themeNames.get(x.theme_id)||'',area:x.syllabus_area||'',sourcePage:x.source_page||null,sourceDocument:x.source_document||'',kind:x.question_kind||'question',metadata:x.source_metadata||{},marks:x.marks,wordLimit:x.word_limit,createdBy:x.created_by}));
     const answersByQuestion={};
     for(const a of answers) answersByQuestion[a.question_id]={content:a.content?.html||'',createdBy:a.created_by,updatedBy:a.updated_by,createdAt:stamp(a.created_at),updatedAt:stamp(a.updated_at),version:a.version,history:(av.get(a.question_id)||[]).map(v=>({content:v.content?.html||'',updatedBy:v.changed_by,updatedAt:stamp(v.changed_at)}))};
     const progressByUser={}; for(const p of practice) progressByUser[`${userId}:${p.question_id}`]=p.practiced_at||true;
-    return {notes:noteRows,subjects:subjects.map(s=>s.name),keywords:keywordRows,questions:questionRows,answers:answersByQuestion,practice:progressByUser,users:profiles.map(p=>({id:p.id,name:p.display_name||'Edvantage user',email:'',role:p.id===userId?'Editor':'User'})),currentUser:userId,papers,theme:profiles.find(p=>p.id===userId)?.preferences?.theme||'light'};
+    return {notes:noteRows,subjects:[...new Set([...subjects.map(s=>s.name),...notionSubjectOptions])],keywords:keywordRows,questions:questionRows,answers:answersByQuestion,practice:progressByUser,users:profiles.map(p=>({id:p.id,name:p.display_name||'Edvantage user',email:'',role:p.id===userId?'Editor':'User'})),currentUser:userId,papers,theme:profiles.find(p=>p.id===userId)?.preferences?.theme||'light'};
   }
   async function saveSubject(name) {
     const rows=await post('subjects',[{workspace_id:workspaceId,name,created_by:userId}],'workspace_id,normalized_name');
@@ -104,19 +101,116 @@
     if(rows?.[0]?.id){themesByName.set(key,rows[0].id);return rows[0].id;}
     throw new Error(`Could not create theme: ${name}`);
   }
+  function richTextFromNode(node, style={}) {
+    if(node.nodeType===Node.TEXT_NODE) {
+      const content=node.nodeValue||''; if(!content)return [];
+      const {link,...annotations}=style, chunks=[];
+      for(let i=0;i<content.length;i+=2000)chunks.push({type:'text',text:{content:content.slice(i,i+2000),...(link?{link}:{})},annotations});
+      return chunks;
+    }
+    if(node.nodeType!==Node.ELEMENT_NODE) return [];
+    const tag=node.tagName.toLowerCase(), next={...style};
+    if(tag==='strong'||tag==='b')next.bold=true;
+    if(tag==='em'||tag==='i')next.italic=true;
+    if(tag==='u')next.underline=true;
+    if(tag==='s'||tag==='del')next.strikethrough=true;
+    if(tag==='code')next.code=true;
+    if(tag==='a'&&node.href)next.link={url:node.href};
+    const colorMap={'#81776e':'gray','#79543a':'brown','#c7682c':'orange','#a66d12':'yellow','#43805b':'green','#416da0':'blue','#7959a4':'purple','#b94d83':'pink','#ae493d':'red','#fde68a':'yellow_background','#fed7aa':'orange_background','#fbcfe8':'pink_background','#ddd6fe':'purple_background','#bfdbfe':'blue_background'};
+    const normalizedColor=value=>{const rgb=String(value||'').match(/\d+/g);return rgb?.length>=3?`#${rgb.slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('')}`:String(value||'').toLowerCase()};
+    const foreground=colorMap[normalizedColor(node.style?.color)];
+    const background=colorMap[normalizedColor(node.style?.backgroundColor)];
+    if(foreground)next.color=foreground;
+    if(background)next.color=background;
+    return [...node.childNodes].flatMap(child=>richTextFromNode(child,next));
+  }
+  function htmlToNotionBlocks(html) {
+    const root=document.createElement('div'); root.innerHTML=html||'';
+    const output=[];
+    const rt=nodes=>nodes.flatMap(node=>richTextFromNode(node));
+    const textBlock=(type,nodes,extra={})=>({object:'block',type,[type]:{rich_text:rt(nodes),...extra}});
+    const walkList=(list,type)=>[...list.children].filter(x=>x.tagName==='LI').map(li=>{
+      const nested=[...li.children].filter(x=>['UL','OL'].includes(x.tagName));
+      const inline=[...li.childNodes].filter(x=>!(x.nodeType===Node.ELEMENT_NODE&&['UL','OL'].includes(x.tagName)));
+      const block=textBlock(type==='UL'?'bulleted_list_item':'numbered_list_item',inline);
+      if(nested.length)block[type==='UL'?'bulleted_list_item':'numbered_list_item'].children=nested.flatMap(x=>walkList(x,x.tagName));
+      return block;
+    });
+    const visit=node=>{
+      if(node.nodeType===Node.TEXT_NODE){if(node.nodeValue.trim())output.push(textBlock('paragraph',[node]));return}
+      if(node.nodeType!==Node.ELEMENT_NODE)return;
+      const tag=node.tagName.toLowerCase();
+      if(tag==='ul'||tag==='ol'){output.push(...walkList(node,tag.toUpperCase()));return}
+      if(/^h[1-3]$/.test(tag)){output.push(textBlock(`heading_${tag.slice(1)}`,[...node.childNodes]));return}
+      if(tag==='aside'&&(node.classList.contains('notion-callout')||node.classList.contains('note-callout'))){output.push(textBlock('callout',[...node.childNodes],{icon:{type:'emoji',emoji:'💡'}}));return}
+      if(tag==='blockquote'){output.push(textBlock('quote',[...node.childNodes]));return}
+      if(tag==='pre'){output.push(textBlock('code',[...node.childNodes],{language:'plain text'}));return}
+      if(tag==='details'){const summary=node.querySelector('summary'),children=[...node.children].filter(x=>x!==summary).flatMap(x=>htmlToNotionBlocks(x.outerHTML));output.push(textBlock('toggle',summary?[...summary.childNodes]:[],children.length?{children}:{}));return}
+      if(['p','div','section','article'].includes(tag)){if([...node.children].some(x=>['P','DIV','UL','OL','H1','H2','H3','BLOCKQUOTE'].includes(x.tagName))){[...node.childNodes].forEach(visit);return}output.push(textBlock('paragraph',[...node.childNodes]));return}
+      output.push(textBlock('paragraph',[node]));
+    };
+    [...root.childNodes].forEach(visit);
+    return output.slice(0,1000);
+  }
+  function notionRichHtml(items=[]) {
+    return items.map(item=>{
+      let value=escHtml(item.plain_text||item.text?.content||'');
+      const a=item.annotations||{};
+      if(a.code)value=`<code>${value}</code>`;
+      if(a.bold)value=`<strong>${value}</strong>`;
+      if(a.italic)value=`<em>${value}</em>`;
+      if(a.underline)value=`<u>${value}</u>`;
+      if(a.strikethrough)value=`<s>${value}</s>`;
+      if(a.color&&a.color!=='default'){
+        const colors={gray:'#81776e',brown:'#79543a',orange:'#c7682c',yellow:'#a66d12',green:'#43805b',blue:'#416da0',purple:'#7959a4',pink:'#b94d83',red:'#ae493d'};
+        const background=a.color.endsWith('_background'),color=a.color.replace('_background','');
+        if(colors[color])value=`<span style="${background?`background-color:${colors[color]}`:`color:${colors[color]}`}">${value}</span>`;
+      }
+      if(item.href)value=`<a href="${escHtml(item.href)}">${value}</a>`;
+      return value;
+    }).join('');
+  }
+  function escHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function blocksToHtml(blocks=[]) {
+    return blocks.map(block=>{
+      const value=block[block.type]||{},content=notionRichHtml(value.rich_text||[]),children=blocksToHtml(block.children||[]);
+      if(block.type==='heading_1'||block.type==='heading_2'||block.type==='heading_3')return `<h${block.type.slice(-1)}>${content}</h${block.type.slice(-1)}>${children}`;
+      if(block.type==='bulleted_list_item')return `<ul><li>${content}${children}</li></ul>`;
+      if(block.type==='numbered_list_item')return `<ol><li>${content}${children}</li></ol>`;
+      if(block.type==='quote')return `<blockquote>${content}</blockquote>${children}`;
+      if(block.type==='code')return `<pre><code>${content}</code></pre>`;
+      if(block.type==='toggle')return `<details><summary>${content}</summary>${children}</details>`;
+      if(block.type==='callout')return `<aside class="notion-callout">${content}${children}</aside>`;
+      if(block.type==='to_do')return `<p><input type="checkbox" ${value.checked?'checked':''} disabled> ${content}</p>${children}`;
+      if(block.type==='child_page')return `<p>${escHtml(value.title||'Nested page')}</p>`;
+      return `<p>${content}</p>${children}`;
+    }).join('');
+  }
+  async function notionRequest(method, body, id) {
+    const session=await api.session();
+    if(!session?.access_token)throw new Error('Sign in to access shared notes.');
+    const url='/api/notion/notes'+(id?`?id=${encodeURIComponent(id)}`:'');
+    const response=await fetch(url,{method,headers:{Authorization:`Bearer ${session.access_token}`,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||`Notion request failed (${response.status})`);
+    return data;
+  }
+  async function loadNotionNotes(){
+    const result=await notionRequest('GET');
+    notionSubjectOptions=result.subjects||[];
+    notionSupportsNesting=Boolean(result.supportsNesting);
+    return (result.notes||[]).map(n=>({id:n.id,title:n.title,content:'',contentLoaded:false,parentId:n.parentId||null,papers:n.papers||[],subjects:n.subjects||[],createdBy:'notion',updatedBy:'notion',createdAt:stamp(n.createdAt),updatedAt:stamp(n.updatedAt),history:[],notionUrl:n.url}));
+  }
+  async function loadNotionNoteContent(id){const result=await notionRequest('GET',null,id);return {content:blocksToHtml(result.contentBlocks),updatedAt:stamp(result.updatedAt),notionUrl:result.url}}
+  function notionSubjects(){return notionSubjectOptions}
+  function notionCanNest(){return notionSupportsNesting}
   async function saveNote(note) {
-    const isNew=!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(note.id);
-    if(isNew) note.id=crypto.randomUUID();
-    const content={html:note.content||'',parentId:note.parentId||null};
-    await post('notes',[{id:note.id,workspace_id:workspaceId,title:note.title,content,content_text:plain(note.content),created_by:note.createdBy||userId,updated_by:userId}],'id');
-    await remove('note_papers',`workspace_id=eq.${q(workspaceId)}&note_id=eq.${q(note.id)}`);
-    await remove('note_subjects',`workspace_id=eq.${q(workspaceId)}&note_id=eq.${q(note.id)}`);
-    const pp=(note.papers||[]).filter(x=>papersByCode.has(x)).map(x=>({workspace_id:workspaceId,note_id:note.id,paper_id:papersByCode.get(x)}));
-    const ss=[]; for(const name of note.subjects||[]) ss.push({workspace_id:workspaceId,note_id:note.id,subject_id:await subjectId(name)});
-    await post('note_papers',pp,'note_id,paper_id'); await post('note_subjects',ss,'note_id,subject_id');
+    const result=await notionRequest('POST',{id:note.id,title:note.title,papers:note.papers||[],subjects:note.subjects||[],parentId:note.parentId||null,blocks:htmlToNotionBlocks(note.content)});
+    note.id=result.id;
+    note.notionUrl=result.url;
   }
   async function deleteNote(id) {
-    return api.api(`notes?id=eq.${q(id)}&workspace_id=eq.${q(workspaceId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({deleted_at:new Date().toISOString(),updated_by:userId})});
+    return notionRequest('DELETE',null,id);
   }
   async function saveKeyword(keyword) {
     const isNew=!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(keyword.id); if(isNew) keyword.id=crypto.randomUUID();
@@ -169,5 +263,5 @@
   async function syncTheme(theme) {
     return api.api(`profiles?id=eq.${q(userId)}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({preferences:{theme}})});
   }
-  window.EdvantageData={connectUser,loadWorkspace,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
+  window.EdvantageData={connectUser,loadWorkspace,loadNotionNotes,loadNotionNoteContent,notionSubjects,notionCanNest,saveSubject,deleteSubject,saveNote,deleteNote,saveKeyword,saveQuestion,saveQuestions,setPractice,saveAnswer,resetProgress,syncTheme,workspace:()=>workspaceId,user:()=>userId};
 })();
